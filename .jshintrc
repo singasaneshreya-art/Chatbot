@@ -1,0 +1,6 @@
+{
+  "esversion": 8,
+  "browser": true,
+  "devel": true,
+  "node": false
+}

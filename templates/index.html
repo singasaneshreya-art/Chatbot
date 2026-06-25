@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NexSupport - AI Customer Service Chatbot</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  
+  <div class="app-container">
+    
+    <!-- Center Column (Chat Interface) -->
+    <main class="chat-container">
+      
+      <!-- Header -->
+      <header class="chat-header">
+        <div class="header-left">
+          <div class="header-logo-pill">
+            <span class="header-logo-emoji">🤖</span>
+            <span class="header-logo-text">NexSupport</span>
+          </div>
+        </div>
+        
+        <div class="header-right">
+          <div class="header-status">
+            <span class="status-dot"></span>
+            <span class="status-text">Agent Online</span>
+          </div>
+        </div>
+      </header>
+      
+      <!-- Chat Main Body -->
+      <div class="chat-main">
+        <!-- Hero Area -->
+        <div class="chat-hero">
+          <h1>Customer Service AI</h1>
+          <p>NLP + Rule-Based + AI · Ask me about your project, orders, refunds, or anything</p>
+        </div>
+        
+        <!-- Messages List -->
+        <div class="message-list" id="message-list">
+          <!-- Messages will be injected here dynamically -->
+        </div>
+      </div>
+      
+      <!-- Input Area -->
+      <div class="input-area">
+        <div class="input-wrapper">
+          <div class="input-container">
+            <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
+            <button id="send-btn" class="send-btn">
+              <svg viewBox="0 0 24 24">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="footer-label">
+            Powered by NLP rule-based routing + Claude AI fallback
+          </div>
+        </div>
+      </div>
+      
+    </main>
+    
+  </div>
+
+  <!-- Scripts -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
