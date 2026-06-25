@@ -25,10 +25,6 @@ function addUserMessage(text) {
   const messageRow = document.createElement('div');
   messageRow.className = 'message-row user';
 
-  const avatar = document.createElement('div');
-  avatar.className = 'message-avatar';
-  avatar.innerText = '👤';
-
   const wrapper = document.createElement('div');
   wrapper.className = 'message-content-wrapper';
 
@@ -37,60 +33,114 @@ function addUserMessage(text) {
   bubble.innerHTML = formatResponseText(text);
 
   wrapper.appendChild(bubble);
-  messageRow.appendChild(avatar);
   messageRow.appendChild(wrapper);
   messageList.appendChild(messageRow);
 
   scrollToBottom();
 }
 
+// Render dynamic action chips in the footer
+function renderChips(chips = []) {
+  const chipsContainer = document.getElementById('chips-container');
+  chipsContainer.innerHTML = '';
+
+  if (!chips || chips.length === 0) return;
+
+  chips.forEach(chipText => {
+    const chipBtn = document.createElement('button');
+    chipBtn.className = 'chip-btn';
+    
+    // Add custom classes and icons based on chip labels to match mockup design
+    if (chipText.toLowerCase().includes('track gps')) {
+      chipBtn.classList.add('action-primary');
+      chipBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm0-10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+        </svg>
+        <span>${chipText}</span>
+      `;
+    } else if (chipText.toLowerCase().includes('contact')) {
+      chipBtn.classList.add('action-primary');
+      chipBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.57a.977.977 0 0 0-1.01.24l-2.2 2.2a15.045 15.045 0 0 1-6.59-6.59l2.2-2.2a.96.96 0 0 0 .25-1.02c-.37-1.11-.57-2.3-.57-3.53C9 3.5 8.5 3 7.88 3H4.03C3.5 3 3 3.5 3 4.03c0 9.37 7.6 16.97 16.97 16.97.53 0 1.03-.5 1.03-1.03v-3.88c0-.62-.5-1.12-1.12-1.12z"/>
+        </svg>
+        <span>${chipText}</span>
+      `;
+    } else if (chipText.toLowerCase().includes('refund')) {
+      chipBtn.classList.add('action-secondary');
+      chipBtn.innerText = chipText;
+    } else {
+      chipBtn.innerText = chipText;
+    }
+
+    chipBtn.addEventListener('click', () => {
+      if (!isTyping) {
+        sendMessage(chipText);
+      }
+    });
+
+    chipsContainer.appendChild(chipBtn);
+  });
+}
+
 // Add bot message bubble
-function addBotMessage(text, chips = []) {
+function addBotMessage(text, chips = [], orderCard = null) {
   const messageList = document.getElementById('message-list');
 
   const messageRow = document.createElement('div');
   messageRow.className = 'message-row bot';
 
+  // Bot Avatar (dark circle)
   const avatar = document.createElement('div');
-  avatar.className = 'message-avatar';
-  avatar.innerText = '🤖';
+  avatar.className = 'bot-avatar-icon';
 
   const wrapper = document.createElement('div');
   wrapper.className = 'message-content-wrapper';
 
+  // Bot Header (Name + Status Dot)
+  const header = document.createElement('div');
+  header.className = 'bot-name-row';
+  header.innerHTML = `<span>Support AI</span><span class="bot-dot">●</span>`;
+  wrapper.appendChild(header);
+
+  // Bubble Content
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
   bubble.innerHTML = formatResponseText(text);
-
   wrapper.appendChild(bubble);
 
-  if (chips && chips.length > 0) {
-    const chipsContainer = document.createElement('div');
-    chipsContainer.className = 'chips-container';
-
-    chips.forEach(chipText => {
-      const chipBtn = document.createElement('button');
-      chipBtn.className = 'chip-btn';
-      chipBtn.innerText = chipText;
-      chipBtn.addEventListener('click', () => {
-        if (!isTyping) {
-          sendMessage(chipText);
-        }
-      });
-      chipsContainer.appendChild(chipBtn);
-    });
-
-    wrapper.appendChild(chipsContainer);
+  // Render Order Card if metadata is present
+  if (orderCard) {
+    const cardEl = document.createElement('div');
+    cardEl.className = 'order-card';
+    cardEl.innerHTML = `
+      <div class="order-card-header">
+        <span class="order-card-title">Order Summary</span>
+        <span class="order-card-badge">${orderCard.badge || 'Active Dispute'}</span>
+      </div>
+      <div class="order-card-body">
+        <img class="order-card-img" src="${orderCard.image || '/static/images/chair.png'}" alt="${orderCard.item}">
+        <div class="order-card-info">
+          <span class="order-card-name">${orderCard.item}</span>
+          <span class="order-card-model">${orderCard.model || ''}</span>
+          <span class="order-card-price">${orderCard.price}</span>
+        </div>
+      </div>
+    `;
+    bubble.appendChild(cardEl);
   }
 
   messageRow.appendChild(avatar);
   messageRow.appendChild(wrapper);
   messageList.appendChild(messageRow);
 
+  // Render action chips in the footer area
+  renderChips(chips);
   scrollToBottom();
 }
 
-// Typing Indicator
+// Typing Indicator matching mockup style
 function showTypingIndicator() {
   const messageList = document.getElementById('message-list');
   const id = 'typing-' + Date.now();
@@ -100,20 +150,27 @@ function showTypingIndicator() {
   messageRow.id = id;
 
   const avatar = document.createElement('div');
-  avatar.className = 'message-avatar';
-  avatar.innerText = '🤖';
+  avatar.className = 'bot-avatar-icon';
 
   const wrapper = document.createElement('div');
   wrapper.className = 'message-content-wrapper';
 
+  const header = document.createElement('div');
+  header.className = 'bot-name-row';
+  header.innerHTML = `<span>Support AI</span><span class="bot-dot">●</span>`;
+  wrapper.appendChild(header);
+
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
 
-  const typingDots = document.createElement('div');
-  typingDots.className = 'typing-dots';
-  typingDots.innerHTML = '<span></span><span></span><span></span>';
+  const typingDotsText = document.createElement('div');
+  typingDotsText.className = 'typing-row-text';
+  typingDotsText.innerHTML = `
+    <span class="dots"><span></span><span></span><span></span></span>
+    <span>AI is investigating...</span>
+  `;
 
-  bubble.appendChild(typingDots);
+  bubble.appendChild(typingDotsText);
   wrapper.appendChild(bubble);
   messageRow.appendChild(avatar);
   messageRow.appendChild(wrapper);
@@ -141,42 +198,36 @@ function scrollToBottom() {
 }
 
 // Primary send message function
-function sendMessage(text, simulateOverride = false) {
+function sendMessage(text) {
   if (isTyping || !text.trim()) return;
   isTyping = true;
 
   const chatInput = document.getElementById('chat-input');
-  const sendBtn = document.getElementById('send-btn');
   chatInput.disabled = true;
-  sendBtn.classList.remove('enabled');
 
   addUserMessage(text);
 
-  const typingId = showTypingIndicator();
+  // Clear footer chips while bot is typing
+  renderChips([]);
 
-  // Start background API call
-  const isSimulation = simulateOverride || text.toLowerCase().trim() === 'simulate claude response';
-  const chatPayload = {
-    message: text,
-    simulate_claude: isSimulation
-  };
+  const typingId = showTypingIndicator();
 
   fetch('/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(chatPayload)
+    body: JSON.stringify({ message: text })
   })
     .then(res => res.json())
     .then(backendData => {
       removeTypingIndicator(typingId);
 
-      if (backendData.error === 'API_KEY_REQUIRED') {
-        addBotMessage(backendData.response, ["Simulate Claude Response", "Back to main menu"]);
-      } else {
-        addBotMessage(backendData.response, backendData.chips || []);
-      }
+      addBotMessage(
+        backendData.response, 
+        backendData.chips || [], 
+        backendData.order_card || null
+      );
 
       chatInput.disabled = false;
       chatInput.value = '';
@@ -201,16 +252,10 @@ window.addEventListener('DOMContentLoaded', () => {
   chatInput.addEventListener('input', function () {
     this.style.height = 'auto';
     this.style.height = (this.scrollHeight) + 'px';
-    if (this.scrollHeight > 100) {
+    if (this.scrollHeight > 80) {
       this.style.overflowY = 'auto';
     } else {
       this.style.overflowY = 'hidden';
-    }
-
-    if (this.value.trim().length > 0) {
-      sendBtn.classList.add('enabled');
-    } else {
-      sendBtn.classList.remove('enabled');
     }
   });
 
@@ -229,10 +274,59 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Welcome message
+  // Sidebar new chat trigger
+  const newChatBtn = document.querySelector('.new-chat-btn');
+  if (newChatBtn) {
+    newChatBtn.addEventListener('click', () => {
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'back' })
+      }).then(() => {
+        document.getElementById('message-list').innerHTML = '';
+        document.getElementById('chips-container').innerHTML = '';
+        const welcomeText = `👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?`;
+        const welcomeChips = ["Track my order", "I need a refund", "What are your hours?"];
+        addBotMessage(welcomeText, welcomeChips);
+      });
+    });
+  }
+
+  // Populate mockup conversation on startup to match the user's image exactly
   setTimeout(() => {
-    const welcomeText = `👋 Hi! I'm **NexSupport** — your AI-powered customer service agent.\n\nI can help with:\n- 📦 **Order tracking & delivery**\n- 💳 **Refunds & billing**\n- 😤 **Complaints & escalations**\n- 🕐 **Support hours**`;
-    const welcomeChips = ["Track my order", "I need a refund", "What are your hours?"];
-    addBotMessage(welcomeText, welcomeChips);
-  }, 400);
+    // 1. User Message
+    addUserMessage("Hi, I'm having trouble with my recent order #8821. It says 'Delivered' but I haven't received anything yet. Can you help?");
+    
+    // 2. Bot Response with Order Card
+    setTimeout(() => {
+      const responseText = "Hello! I understand your concern regarding **Order #8821**. I've looked into the tracking logs for you.\n\nAccording to our detailed dispatch records:\n\n* The package was marked delivered at **9:45 AM**.\n* Location: **Secured Parcel Locker #12**.\n* The signature was provided by **\"Front Desk Personnel\"**.\n\nWould you like me to initiate a **GPS verification request** with the courier or contact your building management directly?";
+      const orderCard = {
+        item: "ErgoCore Pro Series X",
+        model: "Model: 2024-Charcoal",
+        price: "$499.00",
+        badge: "Active Dispute",
+        image: "/static/images/chair.png"
+      };
+      const chips = ["Track GPS", "Contact to Customer", "Refund Options"];
+      addBotMessage(responseText, chips, orderCard);
+      
+      // 3. User Message 2
+      setTimeout(() => {
+        addUserMessage("I checked the locker and it's empty. Can you please check with the courier?");
+        
+        // 4. Typing Indicator
+        setTimeout(() => {
+          const typingId = showTypingIndicator();
+          
+          // 5. Bot Response 2 (Auto resolved mock response to complete the loop)
+          setTimeout(() => {
+            removeTypingIndicator(typingId);
+            const nextResponse = "📍 **GPS Verification Request Initiated**\n\nI have contacted the courier to retrieve the exact GPS coordinates and time of the scan. I am also opening a priority dispute ticket for you. An agent will contact you shortly.";
+            const nextChips = ["Contact to Customer", "Refund Options", "Back to main menu"];
+            addBotMessage(nextResponse, nextChips);
+          }, 3000);
+        }, 1000);
+      }, 2500);
+    }, 1500);
+  }, 500);
 });

@@ -23,6 +23,15 @@ MOCK_ORDERS = {
         "item": "Eronomic Mouse",
         "price": "$49.99",
         "eta": "5 days"
+    },
+    "ORD-8821": {
+        "id": "ORD-8821",
+        "status": "Delivered",
+        "item": "ErgoCore Pro Series X",
+        "model": "Model: 2024-Charcoal",
+        "price": "$499.00",
+        "badge": "Active Dispute",
+        "eta": None
     }
 }
 
@@ -45,21 +54,21 @@ def get_order(order_id: str) -> dict | None:
 def extract_order_id(text: str) -> str | None:
     """
     Extracts Order ID from text.
-    1. Looks for ORD-XXXXXX (5 or 6 digits)
-    2. Fallback: Looks for a 6-digit numeric string, checks if ORD-XXXXXX exists in the store.
+    1. Looks for ORD-XXXX (4 to 6 digits)
+    2. Fallback: Looks for a 4 to 6 digit numeric string, checks if ORD-XXXX exists in the store.
     """
     if not text:
         return None
         
-    # Case 1: Look for ORD- followed by 5 or 6 digits
-    match = re.search(r'\bORD-(\d{5,6})\b', text, re.IGNORECASE)
+    # Case 1: Look for ORD- followed by 4 to 6 digits
+    match = re.search(r'\bORD-(\d{4,6})\b', text, re.IGNORECASE)
     if match:
-        return f"ORD-{match.group(1)}"
+        return f"ORD-{match.group(1)}".upper()
         
-    # Case 2: Fallback to 6-digit number
-    numeric_match = re.search(r'\b(\d{6})\b', text)
+    # Case 2: Fallback to 4 to 6 digit number
+    numeric_match = re.search(r'\b(\d{4,6})\b', text)
     if numeric_match:
-        candidate_id = f"ORD-{numeric_match.group(1)}"
+        candidate_id = f"ORD-{numeric_match.group(1)}".upper()
         if candidate_id in MOCK_ORDERS:
             return candidate_id
             

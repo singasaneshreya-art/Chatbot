@@ -112,12 +112,99 @@ def chat():
                 'chips': chips
             })
 
+    # Mockup interactive flows for active order ORD-8821
+    active_order_id = session_manager.get_active_order_id()
+    if active_order_id == 'ORD-8821':
+        if any(k in cleaned_msg for k in ['empty', 'gps', 'courier', 'track gps', 'check with the courier']):
+            response_text = (
+                "📍 **GPS Verification Request Initiated**\n\n"
+                "I have contacted the courier to retrieve the exact GPS coordinates and time of the scan. "
+                "I am also opening a priority dispute ticket for you. An agent will contact you shortly."
+            )
+            chips = ["Contact to Customer", "Refund Options", "Back to main menu"]
+            session_manager.add_message('assistant', response_text)
+            return jsonify({
+                'intent': 'order_status',
+                'confidence': 1.0,
+                'response': response_text,
+                'chips': chips
+            })
+        elif any(k in cleaned_msg for k in ['contact', 'customer']):
+            response_text = (
+                "📞 **Priority Support Escalation**\n\n"
+                "I've escalated your issue regarding Order #8821 to a senior support representative. "
+                "A live agent will call or email you in **less than 10 minutes** to resolve this."
+            )
+            chips = ["Refund Options", "Back to main menu"]
+            session_manager.add_message('assistant', response_text)
+            return jsonify({
+                'intent': 'complaint',
+                'confidence': 1.0,
+                'response': response_text,
+                'chips': chips
+            })
+        elif any(k in cleaned_msg for k in ['refund', 'refund options']):
+            response_text = (
+                "💳 **Refund Options for Order ORD-8821**\n\n"
+                "Since your package was marked delivered but not received, we can:\n"
+                "1. **Re-ship** the ErgoCore Pro Series X immediately.\n"
+                "2. Issue a **full refund of $499.00** back to your original payment method.\n\n"
+                "Would you like me to process a full refund?"
+            )
+            chips = ["Yes, issue refund", "Contact to Customer", "Back to main menu"]
+            session_manager.add_message('assistant', response_text)
+            return jsonify({
+                'intent': 'refund',
+                'confidence': 1.0,
+                'response': response_text,
+                'chips': chips
+            })
+        elif 'yes, issue refund' in cleaned_msg:
+            response_text = (
+                "💳 **Refund Initiated**\n\n"
+                "We have successfully initiated a full refund of **$499.00** for your **ErgoCore Pro Series X**.\n"
+                "The credit will appear on your account within **3-5 business days**."
+            )
+            chips = ["Back to main menu"]
+            session_manager.add_message('assistant', response_text)
+            return jsonify({
+                'intent': 'refund',
+                'confidence': 1.0,
+                'response': response_text,
+                'chips': chips
+            })
+
     # 3. Check if a valid Order ID is in the message
     extracted_id = order_service.extract_order_id(message)
     if extracted_id:
         order = order_service.get_order(extracted_id)
         if order:
-            if flow == 'refund':
+            if order['id'] == 'ORD-8821':
+                session_manager.set_active_order_id('ORD-8821')
+                response_text = (
+                    "Hello! I understand your concern regarding **Order #8821**. I've looked into the tracking logs for you.\n\n"
+                    "According to our detailed dispatch records:\n\n"
+                    "* The package was marked delivered at **9:45 AM**.\n"
+                    "* Location: **Secured Parcel Locker #12**.\n"
+                    "* The signature was provided by **\"Front Desk Personnel\"**.\n\n"
+                    "Would you like me to initiate a **GPS verification request** with the courier or contact your building management directly?"
+                )
+                chips = ["Track GPS", "Contact to Customer", "Refund Options"]
+                session_manager.add_message('assistant', response_text)
+                return jsonify({
+                    'intent': 'order_status',
+                    'confidence': 1.0,
+                    'response': response_text,
+                    'chips': chips,
+                    'order_card': {
+                        'item': order['item'],
+                        'model': order.get('model', 'Model: 2024-Charcoal'),
+                        'price': order['price'],
+                        'badge': order.get('badge', 'Active Dispute'),
+                        'image': '/static/images/chair.png'
+                    }
+                })
+            elif flow == 'refund':
                 session_manager.set_flow(None) # exit flow
                 session_manager.set_active_order_id(None) # clear active order ID since it's completed
                 response_text = (
