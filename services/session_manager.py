@@ -32,3 +32,32 @@ def set_active_order_id(order_id):
 def get_active_order_id():
     return session.get('active_order_id')
 
+def set_user_name(name):
+    session['user_name'] = name
+    session.modified = True
+
+def get_user_name():
+    return session.get('user_name')
+
+def set_user_email(email):
+    session['user_email'] = email
+    session.modified = True
+
+def get_user_email():
+    return session.get('user_email')
+
+def set_pre_collect_flow(flow):
+    session['pre_collect_flow'] = flow
+    session.modified = True
+
+def get_pre_collect_flow():
+    return session.get('pre_collect_flow')
+
+def clear_collect_state():
+    session.pop('user_name', None)
+    session.pop('user_email', None)
+    session.pop('pre_collect_flow', None)
+    if session.get('flow') in ['collecting_name', 'collecting_email']:
+        session['flow'] = None
+    session.modified = True
+

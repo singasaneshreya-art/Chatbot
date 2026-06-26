@@ -7,11 +7,18 @@ from services.classifier import classify_intent
 import services.gemini_service as gemini_service
 import services.session_manager as session_manager
 import services.order_service as order_service
+from services.mongodb_service import seed_db_if_empty
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'nexsupport-super-secret-key-1234')
+
+# Seed MongoDB on startup if it's empty
+try:
+    seed_db_if_empty()
+except Exception as e:
+    print(f"Warning: Could not seed MongoDB on startup: {e}")
 
 # Standard Responses mapped by intent
 RESPONSES = {
@@ -44,6 +51,7 @@ RESPONSES = {
 @app.route('/')
 def home():
     session_manager.clear_history()
+    session_manager.clear_collect_state()
     return render_template('index.html')
 
 @app.route('/api/chat', methods=['POST'])
@@ -64,6 +72,7 @@ def chat():
     # 1. Check for cancel keywords to exit active flow
     if cleaned_msg in ['cancel', 'back', 'menu', 'exit', 'back to main menu', 'back to menu']:
         session_manager.set_flow(None)
+        session_manager.clear_collect_state()
         response_text = "Action cancelled. Back to the main menu!"
         chips = ["Track my order", "I need a refund", "What are your hours?"]
         session_manager.add_message('assistant', response_text)
@@ -73,6 +82,121 @@ def chat():
             'response': response_text,
             'chips': chips
         })
+
+    # 2. Check if collecting customer details for order lookup
+    if flow == 'collecting_name':
+        user_name = message.strip()
+        session_manager.set_user_name(user_name)
+        session_manager.set_flow('collecting_email')
+        response_text = f"Thanks, **{user_name}**! Now, please enter your email address so we can associate it with this order."
+        chips = ["Cancel"]
+        session_manager.add_message('assistant', response_text)
+        return jsonify({
+            'intent': 'order_status',
+            'confidence': 1.0,
+            'response': response_text,
+            'chips': chips
+        })
+
+    elif flow == 'collecting_email':
+        email = message.strip()
+        if '@' not in email or '.' not in email:
+            response_text = "That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):"
+            chips = ["Cancel"]
+            session_manager.add_message('assistant', response_text)
+            return jsonify({
+                'intent': 'order_status',
+                'confidence': 0.5,
+                'response': response_text,
+                'chips': chips
+            })
+
+        user_name = session_manager.get_user_name()
+        order_id = session_manager.get_active_order_id()
+        
+        # Save customer details to MongoDB Atlas
+        order = order_service.update_order_customer(order_id, user_name, email)
+        
+        pre_collect_flow = session_manager.get_pre_collect_flow()
+        session_manager.clear_collect_state()
+        
+        if pre_collect_flow == 'refund' or order_id == 'ORD-8821':
+            if pre_collect_flow == 'refund':
+                session_manager.set_flow('refund')
+                session_manager.set_active_order_id(order_id)
+                response_text = (
+                    f"💳 **Refund Options for Order {order_id}**\n\n"
+                    f"Customer: **{user_name}** ({email})\n\n"
+                    f"Since your package was marked delivered but not received, we can:\n"
+                    f"1. **Re-ship** the {order['item']} immediately.\n"
+                    f"2. Issue a **full refund of {order['price']}** back to your original payment method.\n\n"
+                    f"Would you like me to process a full refund?"
+                )
+                chips = ["Yes, issue refund", "Contact to Customer", "Back to main menu"]
+                session_manager.add_message('assistant', response_text)
+                return jsonify({
+                    'intent': 'refund',
+                    'confidence': 1.0,
+                    'response': response_text,
+                    'chips': chips
+                })
+        
+        # Construct dynamic prompt context for Gemini
+        order_context = (
+            f"You are showing the order status to the customer.\n"
+            f"Order Details:\n"
+            f"- Order ID: {order['id']}\n"
+            f"- Customer: {user_name} ({email})\n"
+            f"- Status: {order['status']}\n"
+            f"- Item Name: {order['item']}\n"
+            f"- Price: {order['price']}\n"
+            f"- Estimated Time of Delivery (ETA): {order['eta'] or 'Not available'}\n"
+            f"- Image URL: {order.get('image_url')}\n\n"
+            f"Please address the customer by name, mention the name of the product, "
+            f"its delivery status (shipment/delivered), and its ETA. Keep it friendly and under 4 lines."
+        )
+        
+        try:
+            history = session_manager.get_history()
+            response_text = gemini_service.call_gemini(history, order_context=order_context)
+        except Exception as e:
+            print(f"Gemini call failed for order status, using fallback: {e}")
+            eta_line = f"ETA:     ~{order['eta']}\n" if order.get('eta') else ""
+            response_text = (
+                f"📦 **Order {order['id']}**\n\n"
+                f"Customer: {user_name} ({email})\n"
+                f"Status:  {order['status']}\n"
+                f"Item:    1× {order['item']}\n"
+                f"Price:   {order['price']}\n"
+                f"{eta_line}"
+            )
+            
+        chips = ["Back to main menu"]
+        
+        # Clear active order ID if not ORD-8821 (which has active interactive dispute options)
+        if order_id != 'ORD-8821':
+            session_manager.set_active_order_id(None)
+        
+        order_card = None
+        image_path = order.get('image_url') or order.get('image')
+        if image_path:
+            order_card = {
+                'item': order['item'],
+                'model': order.get('model', 'Model: Default' if order['id'] != 'ORD-8821' else 'Model: 2024-Charcoal'),
+                'price': order['price'],
+                'badge': order.get('badge', 'Active Order' if order['id'] != 'ORD-8821' else 'Active Dispute'),
+                'image': image_path
+            }
+        
+        session_manager.add_message('assistant', response_text)
+        return jsonify({
+            'intent': 'order_status',
+            'confidence': 1.0,
+            'response': response_text,
+            'chips': chips,
+            'order_card': order_card
+        })
+
 
     # 2. Check for test order generation keywords when in an active flow
     if flow in ['order_tracking', 'refund'] and cleaned_msg in ['generate test order', 'simulate test order', 'test order', 'current order id', 'order id', 'generate order id', 'generate orderid', 'get my order id', 'get order id']:
@@ -112,8 +236,47 @@ def chat():
                 'chips': chips
             })
 
-    # Mockup interactive flows for active order ORD-8821
+    # Handle active refund decisions (re-ship vs refund)
     active_order_id = session_manager.get_active_order_id()
+    if flow == 'refund' and active_order_id:
+        order = order_service.get_order(active_order_id)
+        if order:
+            if any(k in cleaned_msg for k in ['re-ship', 'reship', 're ship', '1', 're-shipment']):
+                response_text = (
+                    f"📦 **Replacement Order Confirmed**\n\n"
+                    f"We have successfully initiated a replacement order for your **{order['item']}** (Order {active_order_id}).\n"
+                    f"A new confirmation email with tracking details will be sent to you shortly."
+                )
+                chips = ["Back to main menu"]
+                session_manager.clear_collect_state()
+                session_manager.set_flow(None)
+                session_manager.set_active_order_id(None)
+                session_manager.add_message('assistant', response_text)
+                return jsonify({
+                    'intent': 'refund',
+                    'confidence': 1.0,
+                    'response': response_text,
+                    'chips': chips
+                })
+            elif any(k in cleaned_msg for k in ['yes, issue refund', 'issue refund', 'refund', '2', 'refund options']):
+                response_text = (
+                    f"💳 **Refund Initiated**\n\n"
+                    f"We have successfully initiated a full refund of **{order['price']}** for your **{order['item']}**.\n"
+                    f"The credit will appear back on your original payment method within **3-5 business days**."
+                )
+                chips = ["Back to main menu"]
+                session_manager.clear_collect_state()
+                session_manager.set_flow(None)
+                session_manager.set_active_order_id(None)
+                session_manager.add_message('assistant', response_text)
+                return jsonify({
+                    'intent': 'refund',
+                    'confidence': 1.0,
+                    'response': response_text,
+                    'chips': chips
+                })
+
+    # Mockup interactive flows for active order ORD-8821
     if active_order_id == 'ORD-8821':
         if any(k in cleaned_msg for k in ['empty', 'gps', 'courier', 'track gps', 'check with the courier']):
             response_text = (
@@ -179,10 +342,32 @@ def chat():
     if extracted_id:
         order = order_service.get_order(extracted_id)
         if order:
+            # If order has no customer details yet, collect them first
+            if not order.get('customer_name') or not order.get('customer_email'):
+                session_manager.set_active_order_id(extracted_id)
+                session_manager.set_pre_collect_flow(flow)
+                session_manager.set_flow('collecting_name')
+                
+                response_text = (
+                    f"I found Order **{extracted_id}**. To retrieve your order details, "
+                    f"please tell me your full name."
+                )
+                chips = ["Cancel"]
+                session_manager.add_message('assistant', response_text)
+                return jsonify({
+                    'intent': 'order_status',
+                    'confidence': 1.0,
+                    'response': response_text,
+                    'chips': chips
+                })
+                
+            user_name = order.get('customer_name')
+            email = order.get('customer_email')
+            
             if order['id'] == 'ORD-8821':
                 session_manager.set_active_order_id('ORD-8821')
                 response_text = (
-                    "Hello! I understand your concern regarding **Order #8821**. I've looked into the tracking logs for you.\n\n"
+                    f"Hello, **{user_name}** ({email})! I understand your concern regarding **Order #8821**. I've looked into the tracking logs for you.\n\n"
                     "According to our detailed dispatch records:\n\n"
                     "* The package was marked delivered at **9:45 AM**.\n"
                     "* Location: **Secured Parcel Locker #12**.\n"
@@ -201,7 +386,7 @@ def chat():
                         'model': order.get('model', 'Model: 2024-Charcoal'),
                         'price': order['price'],
                         'badge': order.get('badge', 'Active Dispute'),
-                        'image': '/static/images/chair.png'
+                        'image': order.get('image_url') or '/static/images/chair.png'
                     }
                 })
             elif flow == 'refund':
@@ -209,6 +394,7 @@ def chat():
                 session_manager.set_active_order_id(None) # clear active order ID since it's completed
                 response_text = (
                     f"💳 **Refund Initiated for Order {order['id']}**\n\n"
+                    f"Customer: **{user_name}** ({email})\n\n"
                     f"We have successfully initiated a refund of **{order['price']}** for your **{order['item']}**.\n"
                     f"The funds should appear back in your account within **3–5 business days**."
                 )
@@ -223,21 +409,58 @@ def chat():
             else:
                 session_manager.set_flow(None) # exit flow
                 session_manager.set_active_order_id(None) # clear active order ID since it's completed
-                eta_line = f"ETA:     ~{order['eta']}\n" if order['eta'] else ""
-                response_text = (
-                    f"📦 **Order {order['id']}**\n\n"
-                    f"Status:  {order['status']}\n"
-                    f"Item:    1× {order['item']}\n"
-                    f"Price:   {order['price']}\n"
-                    f"{eta_line}"
+                
+                # Construct dynamic prompt context for Gemini
+                order_context = (
+                    f"You are showing the order status to the customer.\n"
+                    f"Order Details:\n"
+                    f"- Order ID: {order['id']}\n"
+                    f"- Customer: {user_name} ({email})\n"
+                    f"- Status: {order['status']}\n"
+                    f"- Item Name: {order['item']}\n"
+                    f"- Price: {order['price']}\n"
+                    f"- Estimated Time of Delivery (ETA): {order['eta'] or 'Not available'}\n"
+                    f"- Image URL: {order.get('image_url')}\n\n"
+                    f"Please address the customer by name, mention the name of the product, "
+                    f"its delivery status (shipment/delivered), and its ETA. Keep it friendly and under 4 lines."
                 )
+                
+                try:
+                    history = session_manager.get_history()
+                    response_text = gemini_service.call_gemini(history, order_context=order_context)
+                except Exception as e:
+                    print(f"Gemini call failed for order status, using fallback: {e}")
+                    eta_line = f"ETA:     ~{order['eta']}\n" if order['eta'] else ""
+                    response_text = (
+                        f"📦 **Order {order['id']}**\n\n"
+                        f"Customer: {user_name} ({email})\n"
+                        f"Status:  {order['status']}\n"
+                        f"Item:    1× {order['item']}\n"
+                        f"Price:   {order['price']}\n"
+                        f"{eta_line}"
+                    )
+                    
                 chips = ["Back to main menu"]
+                
+                # Check for dynamic order card
+                order_card = None
+                image_path = order.get('image_url') or order.get('image')
+                if image_path:
+                    order_card = {
+                        'item': order['item'],
+                        'model': order.get('model', 'Model: Default'),
+                        'price': order['price'],
+                        'badge': order.get('badge', 'Active Order'),
+                        'image': image_path
+                    }
+                
                 session_manager.add_message('assistant', response_text)
                 return jsonify({
                     'intent': 'order_status',
                     'confidence': 1.0,
                     'response': response_text,
-                    'chips': chips
+                    'chips': chips,
+                    'order_card': order_card
                 })
         else:
             response_text = (
@@ -383,9 +606,7 @@ def chat():
         if simulate_claude or cleaned_msg == 'simulate claude response' or cleaned_msg == 'simulate ai response':
             response_text = (
                 "🤖 **[Simulated AI Response]**:\n"
-                "I understand your query! I am **NexSupport**, your AI fallback. "
-                "I can assist with **billing**, **refunds**, or help guide you in building your "
-                "**custom NLP classifier**. Let me know how I can assist!"
+                "I am **NexSupport**, your AI assistant. I can only help you with your orders only."
             )
             chips = ["Track my order", "Back to main menu"]
             session_manager.add_message('assistant', response_text)
@@ -455,7 +676,7 @@ def chat():
                     'response': (
                         f"⚠️ **API Fallback Failed**: {str(e)}\n\n"
                         "Your Flask backend is running successfully, but the Gemini API call returned an error. Here is a simulated response:\n\n"
-                        "\"Hello! I am **NexSupport**. I apologize, but my Gemini AI core is temporarily unavailable. Please make sure your API key is valid and you have internet access!\""
+                        "\"I apologize, but my Gemini AI core is temporarily unavailable. Please note that I can only help you with your orders only.\""
                     ),
                     'chips': ["Simulate Claude Response", "Back to main menu"]
                 })

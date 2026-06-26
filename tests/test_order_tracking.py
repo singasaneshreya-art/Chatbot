@@ -16,6 +16,20 @@ import services.session_manager as session_manager
 
 class TestOrderTracking(unittest.TestCase):
 
+    def setUp(self):
+        # Clear mock order customer details before each test
+        from services.order_service import MOCK_ORDERS
+        for order in MOCK_ORDERS.values():
+            order['customer_name'] = None
+            order['customer_email'] = None
+
+        # Isolate unit tests from live MongoDB Atlas database
+        self.get_db_patcher = unittest.mock.patch('services.order_service.get_db', side_effect=Exception("MongoDB disabled for unit tests"))
+        self.get_db_patcher.start()
+
+    def tearDown(self):
+        self.get_db_patcher.stop()
+
     def test_extract_standard_format(self):
         # Test standard uppercase ORD-XXXXXX
         self.assertEqual(extract_order_id("My order ORD-789012 is late"), "ORD-789012")
@@ -121,17 +135,38 @@ class TestOrderTracking(unittest.TestCase):
         with client.session_transaction() as sess:
             sess['flow'] = 'order_tracking'
             
+        # Step 1: Send Order ID
         response = client.post('/api/chat', json={'message': 'ORD-123456'})
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
+        self.assertIn('tell me your full name', data['response'])
+        
+        with client.session_transaction() as sess:
+            self.assertEqual(sess.get('flow'), 'collecting_name')
+            self.assertEqual(sess.get('active_order_id'), 'ORD-123456')
+            
+        # Step 2: Send Name
+        response = client.post('/api/chat', json={'message': 'John Doe'})
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn('enter your email address', data['response'])
+        
+        with client.session_transaction() as sess:
+            self.assertEqual(sess.get('flow'), 'collecting_email')
+            
+        # Step 3: Send Email
+        response = client.post('/api/chat', json={'message': 'john.doe@example.com'})
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
         self.assertIn('Order ORD-123456', data['response'])
+        self.assertIn('Customer: John Doe (john.doe@example.com)', data['response'])
         self.assertIn('Delivered', data['response'])
         self.assertIn('Back to main menu', data['chips'])
-        self.assertNotIn('Track another order', data['chips'])
         
-        # Verify exited order_tracking flow
+        # Verify exited collection and tracking flow
         with client.session_transaction() as sess:
             self.assertIsNone(sess.get('flow'))
+            self.assertIsNone(sess.get('active_order_id'))
 
     def test_api_chat_cancel_flow(self):
         client = app.test_client()
@@ -168,16 +203,29 @@ class TestOrderTracking(unittest.TestCase):
         with client.session_transaction() as sess:
             sess['flow'] = 'refund'
             
+        # Step 1: Send Order ID
         response = client.post('/api/chat', json={'message': 'ORD-123456'})
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
-        self.assertEqual(data['intent'], 'refund')
-        self.assertIn('Refund Initiated for Order ORD-123456', data['response'])
-        self.assertIn('Track my order', data['chips'])
+        self.assertIn('tell me your full name', data['response'])
         
-        # Verify exited refund flow
+        # Step 2: Send Name
+        response = client.post('/api/chat', json={'message': 'John Doe'})
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn('enter your email address', data['response'])
+        
+        # Step 3: Send Email
+        response = client.post('/api/chat', json={'message': 'john.doe@example.com'})
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data['intent'], 'refund')
+        self.assertIn('Refund Options for Order ORD-123456', data['response'])
+        self.assertIn('Customer: **John Doe** (john.doe@example.com)', data['response'])
+        
+        # Verify in refund flow
         with client.session_transaction() as sess:
-            self.assertIsNone(sess.get('flow'))
+            self.assertEqual(sess.get('flow'), 'refund')
 
     def test_api_chat_refund_invalid_id(self):
         client = app.test_client()
@@ -271,6 +319,11 @@ class TestOrderTracking(unittest.TestCase):
         self.assertEqual(order_id1, order_id2)
 
     def test_api_chat_lookup_clears_active_id(self):
+        # Set name and email in mock order so it bypasses collection
+        from services.order_service import MOCK_ORDERS
+        MOCK_ORDERS['ORD-123456']['customer_name'] = 'John Doe'
+        MOCK_ORDERS['ORD-123456']['customer_email'] = 'john@example.com'
+        
         client = app.test_client()
         with client.session_transaction() as sess:
             sess['flow'] = 'order_tracking'
@@ -281,6 +334,25 @@ class TestOrderTracking(unittest.TestCase):
         
         with client.session_transaction() as sess:
             self.assertIsNone(sess.get('active_order_id'))
+
+    def test_api_chat_custom_image_url(self):
+        # Seed custom order with a Cloudinary image URL
+        from services.order_service import MOCK_ORDERS
+        MOCK_ORDERS['ORD-123456']['customer_name'] = 'Alice Smith'
+        MOCK_ORDERS['ORD-123456']['customer_email'] = 'alice@example.com'
+        MOCK_ORDERS['ORD-123456']['image_url'] = 'https://res.cloudinary.com/demo/image/upload/sample.jpg'
+        
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess['flow'] = 'order_tracking'
+            
+        response = client.post('/api/chat', json={'message': 'ORD-123456'})
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        
+        self.assertIn('order_card', data)
+        self.assertIsNotNone(data['order_card'])
+        self.assertEqual(data['order_card']['image'], 'https://res.cloudinary.com/demo/image/upload/sample.jpg')
 
 if __name__ == '__main__':
     unittest.main()

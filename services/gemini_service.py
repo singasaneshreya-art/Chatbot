@@ -1,7 +1,7 @@
 import os
 import requests
 
-def call_gemini(conversation_history):
+def call_gemini(conversation_history, order_context=None):
     """
     Calls Google Gemini API using REST endpoint.
     Maps Flask session role names ('user', 'assistant') to Gemini roles ('user', 'model').
@@ -11,7 +11,7 @@ def call_gemini(conversation_history):
         raise ValueError("Gemini API key is not configured.")
 
     # Rest API Endpoint for Gemini
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
     headers = {
         'Content-Type': 'application/json'
     }
@@ -25,9 +25,19 @@ def call_gemini(conversation_history):
             'parts': [{'text': msg.get('content', '')}]
         })
 
+    instruction_text = (
+        "You are NexSupport, a professional customer service AI. "
+        "You can ONLY help users with queries regarding their orders (such as tracking, status, items, or disputes). "
+        "If the user asks about anything else (including general questions, chit-chat, jokes, coding, or off-topic subjects), "
+        "you MUST politely refuse and state: 'I can only help you with your orders only.' "
+        "Keep responses under 4 lines. Use **bold** for emphasis."
+    )
+    if order_context:
+        instruction_text += f"\n\n[Active Context]\n{order_context}"
+
     system_instruction = {
         "parts": [{
-            "text": "You are NexSupport, a professional customer service AI. Help users with orders, refunds, complaints. Also guide CS/AI students building NLP chatbot projects. Keep responses under 4 lines. Use **bold** for emphasis."
+            "text": instruction_text
         }]
     }
 

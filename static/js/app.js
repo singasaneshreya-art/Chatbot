@@ -292,41 +292,8 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Populate mockup conversation on startup to match the user's image exactly
-  setTimeout(() => {
-    // 1. User Message
-    addUserMessage("Hi, I'm having trouble with my recent order #8821. It says 'Delivered' but I haven't received anything yet. Can you help?");
-    
-    // 2. Bot Response with Order Card
-    setTimeout(() => {
-      const responseText = "Hello! I understand your concern regarding **Order #8821**. I've looked into the tracking logs for you.\n\nAccording to our detailed dispatch records:\n\n* The package was marked delivered at **9:45 AM**.\n* Location: **Secured Parcel Locker #12**.\n* The signature was provided by **\"Front Desk Personnel\"**.\n\nWould you like me to initiate a **GPS verification request** with the courier or contact your building management directly?";
-      const orderCard = {
-        item: "ErgoCore Pro Series X",
-        model: "Model: 2024-Charcoal",
-        price: "$499.00",
-        badge: "Active Dispute",
-        image: "/static/images/chair.png"
-      };
-      const chips = ["Track GPS", "Contact to Customer", "Refund Options"];
-      addBotMessage(responseText, chips, orderCard);
-      
-      // 3. User Message 2
-      setTimeout(() => {
-        addUserMessage("I checked the locker and it's empty. Can you please check with the courier?");
-        
-        // 4. Typing Indicator
-        setTimeout(() => {
-          const typingId = showTypingIndicator();
-          
-          // 5. Bot Response 2 (Auto resolved mock response to complete the loop)
-          setTimeout(() => {
-            removeTypingIndicator(typingId);
-            const nextResponse = "📍 **GPS Verification Request Initiated**\n\nI have contacted the courier to retrieve the exact GPS coordinates and time of the scan. I am also opening a priority dispute ticket for you. An agent will contact you shortly.";
-            const nextChips = ["Contact to Customer", "Refund Options", "Back to main menu"];
-            addBotMessage(nextResponse, nextChips);
-          }, 3000);
-        }, 1000);
-      }, 2500);
-    }, 1500);
-  }, 500);
+  // Show welcome message on startup
+  const welcomeText = `👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?`;
+  const welcomeChips = ["Track my order", "I need a refund", "What are your hours?"];
+  addBotMessage(welcomeText, welcomeChips);
 });
