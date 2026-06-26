@@ -244,6 +244,53 @@ function sendMessage(text) {
     });
 }
 
+// Language Selector Logic (frontend-only, cosmetic)
+function initLanguageSelector() {
+  const selector = document.getElementById('language-selector');
+  const btn = document.getElementById('language-btn');
+  const dropdown = document.getElementById('language-dropdown');
+  const label = document.getElementById('language-label');
+
+  if (!selector || !btn || !dropdown || !label) return;
+
+  // Load saved language preference
+  const savedLang = localStorage.getItem('supportai-language') || 'en';
+  const savedOption = dropdown.querySelector(`[data-lang="${savedLang}"]`);
+  if (savedOption) {
+    label.textContent = savedOption.textContent;
+    dropdown.querySelectorAll('.language-option').forEach(opt => opt.classList.remove('active'));
+    savedOption.classList.add('active');
+  }
+
+  // Toggle dropdown
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selector.classList.toggle('open');
+  });
+
+  // Handle language option click
+  dropdown.querySelectorAll('.language-option').forEach(option => {
+    option.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const lang = option.getAttribute('data-lang');
+      label.textContent = option.textContent;
+      localStorage.setItem('supportai-language', lang);
+
+      dropdown.querySelectorAll('.language-option').forEach(opt => opt.classList.remove('active'));
+      option.classList.add('active');
+
+      selector.classList.remove('open');
+    });
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!selector.contains(e.target)) {
+      selector.classList.remove('open');
+    }
+  });
+}
+
 // Listeners config
 window.addEventListener('DOMContentLoaded', () => {
   const chatInput = document.getElementById('chat-input');
@@ -275,7 +322,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   // Sidebar new chat trigger
-  const newChatBtn = document.querySelector('.new-chat-btn');
+  const newChatBtn = document.getElementById('new-chat-btn');
   if (newChatBtn) {
     newChatBtn.addEventListener('click', () => {
       fetch('/api/chat', {
@@ -291,6 +338,9 @@ window.addEventListener('DOMContentLoaded', () => {
       });
     });
   }
+
+  // Initialize language selector
+  initLanguageSelector();
 
   // Show welcome message on startup
   const welcomeText = `👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?`;
