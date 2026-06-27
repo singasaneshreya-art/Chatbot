@@ -364,3 +364,183 @@ window.addEventListener('DOMContentLoaded', () => {
   const welcomeChips = window.APP_CONFIG?.welcomeChips || ["Track my order", "I need a refund", "What are your hours?"];
   addBotMessage(welcomeText, welcomeChips);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Speech-to-Text via Web Speech API
+// Drop this block at the bottom of your existing app.js (before any closing
+// DOMContentLoaded wrapper if one exists, or just appended to the file).
+// ─────────────────────────────────────────────────────────────────────────────
+
+(function () {
+  // ── 1. Browser support check ──────────────────────────────────────────────
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  const micBtn   = document.getElementById('mic-btn');
+  const chatInput = document.getElementById('chat-input');
+
+  if (!micBtn) return; // guard: element not found
+
+  if (!SpeechRecognition) {
+    // Graceful degradation: hide or visually disable the button
+    micBtn.setAttribute('title', 'Speech recognition is not supported in this browser. Try Chrome or Edge.');
+    micBtn.style.opacity = '0.4';
+    micBtn.style.cursor  = 'not-allowed';
+    micBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      alert('🎤 Speech recognition is not supported in this browser.\nPlease use Google Chrome, Microsoft Edge, or Safari.');
+    });
+    return;
+  }
+
+  // ── 2. Language map ───────────────────────────────────────────────────────
+  // Maps your app's short language codes to BCP-47 locales for the Speech API.
+  // Extend this object if you add more languages to the session manager.
+  const LANG_MAP = {
+    'en': 'en-US',
+    'hi': 'hi-IN',
+    'mr': 'mr-IN',
+    'ta': 'ta-IN',
+    'te': 'te-IN',
+    'kn': 'kn-IN',
+    'gu': 'gu-IN',
+    'bn': 'bn-IN',
+    'pa': 'pa-IN',
+    'fr': 'fr-FR',
+    'de': 'de-DE',
+    'es': 'es-ES',
+    'zh': 'zh-CN',
+    'ja': 'ja-JP',
+    'ar': 'ar-SA',
+  };
+
+  /**
+   * Reads the active language from the DOM.
+   * Looks for the data-lang attribute on the active language-option button,
+   * or falls back to the <html lang> attribute, then 'en'.
+   */
+  function getActiveLang() {
+    // Match the actual DOM: <button class="language-option active" data-lang="hi">
+    const activeBtn = document.querySelector('.language-option.active[data-lang]');
+    if (activeBtn) {
+      const code = activeBtn.getAttribute('data-lang');
+      if (code) return LANG_MAP[code] || code;
+    }
+    // Fallback to <html lang="...">
+    const htmlLang = document.documentElement.lang;
+    if (htmlLang) return LANG_MAP[htmlLang] || htmlLang;
+    return 'en-US';
+  }
+
+  // ── 3. Recognition setup ──────────────────────────────────────────────────
+  let recognition = null;
+  let isRecording = false;
+
+  function buildRecognition() {
+    const rec = new SpeechRecognition();
+    rec.lang            = getActiveLang();
+    rec.interimResults  = true;   // stream partial transcripts for live preview
+    rec.continuous      = false;  // stop after the first natural pause
+    rec.maxAlternatives = 1;
+
+    // ── onresult: insert transcript into the textarea ──────────────────────
+    rec.onresult = function (event) {
+      let interimText = '';
+      let finalText   = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += transcript;
+        } else {
+          interimText += transcript;
+        }
+      }
+
+      if (finalText) {
+        // Append final text (with a space if the box already has content)
+        const current = chatInput.value.trimEnd();
+        chatInput.value = current ? current + ' ' + finalText.trim() : finalText.trim();
+        chatInput.dispatchEvent(new Event('input')); // trigger any existing auto-resize
+      } else if (interimText) {
+        // Show interim result as placeholder so the user sees live feedback
+        chatInput.setAttribute('placeholder', '🎤 ' + interimText + '…');
+      }
+    };
+
+    // ── onerror: reset UI and surface user-friendly messages ───────────────
+    rec.onerror = function (event) {
+      const messages = {
+        'no-speech':         'No speech detected. Please try again.',
+        'audio-capture':     'Microphone not found. Check your device settings.',
+        'not-allowed':       'Microphone access was denied. Please allow access in your browser settings.',
+        'network':           'A network error occurred during recognition.',
+        'aborted':           null, // user-cancelled, no message needed
+        'service-not-allowed': 'Speech service is not allowed. Try using HTTPS.',
+      };
+      const msg = messages[event.error];
+      if (msg) {
+        console.warn('[Speech] Error:', event.error, msg);
+        // Non-intrusive: show briefly in the placeholder
+        chatInput.setAttribute('placeholder', '⚠️ ' + msg);
+        setTimeout(() => restorePlaceholder(), 4000);
+      }
+      stopRecording();
+    };
+
+    // ── onend: always reset UI when recognition stops ─────────────────────
+    rec.onend = function () {
+      stopRecording();
+    };
+
+    return rec;
+  }
+
+  // ── 4. State management ───────────────────────────────────────────────────
+  const originalPlaceholder = chatInput ? (chatInput.getAttribute('placeholder') || 'Type a message…') : '';
+
+  function restorePlaceholder() {
+    if (chatInput) chatInput.setAttribute('placeholder', originalPlaceholder);
+  }
+
+  function startRecording() {
+    recognition = buildRecognition();
+    isRecording = true;
+    micBtn.classList.add('recording');
+    micBtn.setAttribute('aria-label', 'Stop recording');
+    micBtn.setAttribute('title', 'Click to stop recording');
+    if (chatInput) chatInput.setAttribute('placeholder', '🎤 Listening…');
+    recognition.start();
+  }
+
+  function stopRecording() {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    micBtn.setAttribute('aria-label', 'Start voice input');
+    micBtn.setAttribute('title', 'Click to speak');
+    restorePlaceholder();
+    if (recognition) {
+      try { recognition.stop(); } catch (_) { /* already stopped */ }
+      recognition = null;
+    }
+  }
+
+  // ── 5. Mic button click handler ───────────────────────────────────────────
+  micBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  });
+
+  // ── 6. Keyboard accessibility ─────────────────────────────────────────────
+  micBtn.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      micBtn.click();
+    }
+  });
+
+})();

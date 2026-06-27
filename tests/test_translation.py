@@ -3,12 +3,16 @@ from unittest.mock import patch, MagicMock
 import sys
 import os
 
+# Set testing environment variable before importing app to prevent module-level side effects
+os.environ['TESTING'] = 'true'
+
 # Add root directory to python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import app
 from services import translation_service
 
+@patch.dict('os.environ', {'GEMINI_API_KEY': 'dummy_test_key', 'TESTING': 'true'})
 class TestTranslation(unittest.TestCase):
     def setUp(self):
         app.app.config['TESTING'] = True

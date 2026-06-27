@@ -4,6 +4,10 @@ import re
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 
+# Load environment variables FIRST, before importing any local services
+# that might rely on them during initialization.
+load_dotenv()
+
 from services.classifier import classify_intent
 import services.gemini_service as gemini_service
 import services.session_manager as session_manager
@@ -11,16 +15,8 @@ import services.order_service as order_service
 from services.mongodb_service import seed_db_if_empty
 import services.translation_service as translation_service
 
-load_dotenv()
-
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'nexsupport-super-secret-key-1234')
-
-# Seed MongoDB on startup if it's empty
-try:
-    seed_db_if_empty()
-except Exception as e:
-    print(f"Warning: Could not seed MongoDB on startup: {e}")
 
 # Standard Responses mapped by intent
 RESPONSES = {
@@ -154,27 +150,51 @@ def chat_internal(message_orig, message_trans, simulate_claude=False):
         pre_collect_flow = session_manager.get_pre_collect_flow()
         session_manager.clear_collect_state()
         
-        if pre_collect_flow == 'refund' or order_id == 'ORD-8821':
-            if pre_collect_flow == 'refund':
-                session_manager.set_flow('refund')
-                session_manager.set_active_order_id(order_id)
-                response_text = (
-                    f"💳 **Refund Options for Order {order_id}**\n\n"
-                    f"Customer: **{user_name}** ({email})\n\n"
-                    f"Since your package was marked delivered but not received, we can:\n"
-                    f"1. **Re-ship** the {order['item']} immediately.\n"
-                    f"2. Issue a **full refund of {order['price']}** back to your original payment method.\n\n"
-                    f"Would you like me to process a full refund?"
-                )
-                chips = ["Yes, issue refund", "Contact to Customer", "Back to main menu"]
-                session_manager.add_message('assistant', response_text)
-                return jsonify({
-                    'intent': 'refund',
-                    'confidence': 1.0,
-                    'response': response_text,
-                    'chips': chips
-                })
-        
+        if pre_collect_flow == 'refund':
+            session_manager.set_flow('refund')
+            session_manager.set_active_order_id(order_id)
+            response_text = (
+                f"💳 **Refund Options for Order {order_id}**\n\n"
+                f"Customer: **{user_name}** ({email})\n\n"
+                f"Since your package was marked delivered but not received, we can:\n"
+                f"1. **Re-ship** the {order['item']} immediately.\n"
+                f"2. Issue a **full refund of {order['price']}** back to your original payment method.\n\n"
+                f"Would you like me to process a full refund?"
+            )
+            chips = ["Yes, issue refund", "Contact to Customer", "Back to main menu"]
+            session_manager.add_message('assistant', response_text)
+            return jsonify({
+                'intent': 'refund',
+                'confidence': 1.0,
+                'response': response_text,
+                'chips': chips
+            })
+        elif order_id == 'ORD-8821':
+            session_manager.set_active_order_id('ORD-8821')
+            response_text = (
+                f"Hello, **{user_name}** ({email})! I understand your concern regarding **Order #8821**. I've looked into the tracking logs for you.\n\n"
+                "According to our detailed dispatch records:\n\n"
+                "* The package was marked delivered at **9:45 AM**.\n"
+                "* Location: **Secured Parcel Locker #12**.\n"
+                "* The signature was provided by **\"Front Desk Personnel\"**.\n\n"
+                "Would you like me to initiate a **GPS verification request** with the courier or contact your building management directly?"
+            )
+            chips = ["Track GPS", "Contact to Customer", "Refund Options"]
+            session_manager.add_message('assistant', response_text)
+            return jsonify({
+                'intent': 'order_status',
+                'confidence': 1.0,
+                'response': response_text,
+                'chips': chips,
+                'order_card': {
+                    'item': order['item'],
+                    'model': order.get('model', 'Model: 2024-Charcoal'),
+                    'price': order['price'],
+                    'badge': order.get('badge', 'Active Dispute'),
+                    'image': order.get('image_url') or '/static/images/chair.png'
+                }
+            })
+
         # Construct dynamic prompt context for Gemini
         order_context = (
             f"You are showing the order status to the customer.\n"
@@ -194,7 +214,8 @@ def chat_internal(message_orig, message_trans, simulate_claude=False):
             history = session_manager.get_history()
             response_text = gemini_service.call_gemini(history, order_context=order_context)
         except Exception as e:
-            print(f"Gemini call failed for order status, using fallback: {e}")
+            if not app.config.get('TESTING'):
+                print(f"Gemini call failed for order status, using fallback: {e}")
             eta_line = f"ETA:     ~{order['eta']}\n" if order.get('eta') else ""
             response_text = (
                 f"📦 **Order {order['id']}**\n\n"
@@ -463,7 +484,8 @@ def chat_internal(message_orig, message_trans, simulate_claude=False):
                     history = session_manager.get_history()
                     response_text = gemini_service.call_gemini(history, order_context=order_context)
                 except Exception as e:
-                    print(f"Gemini call failed for order status, using fallback: {e}")
+                    if not app.config.get('TESTING'):
+                        print(f"Gemini call failed for order status, using fallback: {e}")
                     eta_line = f"ETA:     ~{order['eta']}\n" if order['eta'] else ""
                     response_text = (
                         f"📦 **Order {order['id']}**\n\n"
@@ -775,4 +797,10 @@ def chat():
     return jsonify(res_data), status_code
 
 if __name__ == '__main__':
+    # Seed MongoDB on startup if it's empty
+    try:
+        seed_db_if_empty()
+    except Exception as e:
+        print(f"Warning: Could not seed MongoDB on startup: {e}")
+        
     app.run(debug=True, port=5000)

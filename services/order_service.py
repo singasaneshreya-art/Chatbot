@@ -1,5 +1,6 @@
 import re
 import random
+import os
 
 # In-memory mock database of orders
 MOCK_ORDERS = {
@@ -72,7 +73,8 @@ def get_order(order_id: str) -> dict | None:
             order["_id"] = str(order["_id"])
             return order
     except Exception as e:
-        print(f"Error fetching order from MongoDB: {e}")
+        if os.getenv('TESTING') != 'true':
+            print(f"Error fetching order from MongoDB: {e}")
         # Fall back to in-memory MOCK_ORDERS for safety/testing
         return MOCK_ORDERS.get(order_id.upper())
     return None
@@ -89,7 +91,8 @@ def update_order_customer(order_id: str, name: str, email: str) -> dict | None:
         )
         return get_order(order_id)
     except Exception as e:
-        print(f"Error updating order customer details in MongoDB: {e}")
+        if os.getenv('TESTING') != 'true':
+            print(f"Error updating order customer details in MongoDB: {e}")
         # Fallback update in-memory
         if order_id.upper() in MOCK_ORDERS:
             MOCK_ORDERS[order_id.upper()]["customer_name"] = name
@@ -126,7 +129,8 @@ def create_random_order() -> str:
     try:
         db = get_db()
     except Exception as e:
-        print(f"Warning: MongoDB not available for generating unique ID check, using fallback: {e}")
+        if os.getenv('TESTING') != 'true':
+            print(f"Warning: MongoDB not available for generating unique ID check, using fallback: {e}")
 
     while True:
         digits = "".join(str(random.randint(0, 9)) for _ in range(6))
@@ -168,7 +172,8 @@ def create_random_order() -> str:
             # Remove MongoDB internal _id object for return / return string ID
             order_data.pop("_id", None)
         except Exception as e:
-            print(f"Error inserting random order in MongoDB: {e}")
+            if os.getenv('TESTING') != 'true':
+                print(f"Error inserting random order in MongoDB: {e}")
             MOCK_ORDERS[new_id] = order_data
     else:
         MOCK_ORDERS[new_id] = order_data

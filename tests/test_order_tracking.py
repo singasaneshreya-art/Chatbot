@@ -3,6 +3,9 @@ import unittest.mock
 import sys
 import os
 
+# Set testing environment variable before importing app to prevent module-level side effects
+os.environ['TESTING'] = 'true'
+
 # Adjust path to import from root directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -14,9 +17,11 @@ from services.order_service import (
 )
 import services.session_manager as session_manager
 
+@unittest.mock.patch.dict('os.environ', {'TESTING': 'true', 'GEMINI_API_KEY': 'dummy_test_key'})
 class TestOrderTracking(unittest.TestCase):
 
     def setUp(self):
+        app.config['TESTING'] = True
         # Clear mock order customer details before each test
         from services.order_service import MOCK_ORDERS
         for order in MOCK_ORDERS.values():

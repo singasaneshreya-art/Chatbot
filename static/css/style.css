@@ -807,3 +807,35 @@ body {
     opacity: 1;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Microphone Button — Recording State
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Pulse keyframe — a soft red glow radiating outward */
+@keyframes mic-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.55); }
+  60%  { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);   }
+  100% { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0);    }
+}
+
+/* Applied to #mic-btn while isRecording === true */
+#mic-btn.recording {
+  color: #dc2626;
+  background-color: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.35);
+  animation: mic-pulse 1.4s ease-out infinite;
+  outline: none;
+}
+
+/* Keep the red state on focus/hover while recording so it doesn't flicker */
+#mic-btn.recording:hover,
+#mic-btn.recording:focus {
+  color: #b91c1c;
+  background-color: rgba(220, 38, 38, 0.2);
+}
+
+/* Disabled/unsupported state (set via JS when API is unavailable) */
+#mic-btn[style*="cursor: not-allowed"] {
+  pointer-events: none;
+}
