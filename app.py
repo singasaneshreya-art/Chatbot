@@ -1,5 +1,6 @@
 import os
 import random
+import re
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 
@@ -8,6 +9,7 @@ import services.gemini_service as gemini_service
 import services.session_manager as session_manager
 import services.order_service as order_service
 from services.mongodb_service import seed_db_if_empty
+import services.translation_service as translation_service
 
 load_dotenv()
 
@@ -50,20 +52,52 @@ RESPONSES = {
 
 @app.route('/')
 def home():
+    # Keep the selected language in session, but clear history/collect states
     session_manager.clear_history()
     session_manager.clear_collect_state()
-    return render_template('index.html')
-
-@app.route('/api/chat', methods=['POST'])
-def chat():
-    data = request.json or {}
-    message = data.get('message', '').strip()
-    simulate_claude = data.get('simulate_claude', False)
+    lang = session_manager.get_language()
     
-    if not message:
-        return jsonify({'error': 'Message is required'}), 400
+    welcome_text = "👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?"
+    welcome_chips = ["Track my order", "I need a refund", "What are your hours?"]
+    
+    welcome_text = translation_service.translate_to_language(welcome_text, lang)
+    welcome_chips = [translation_service.translate_to_language(chip, lang) for chip in welcome_chips]
+    
+    sidebar_hours_raw = [
+        {"icon": "clock", "label": "Mon-Fri: 9 AM - 7 PM"},
+        {"icon": "calendar", "label": "Sat: 10 AM - 4 PM"},
+        {"icon": "calendar", "label": "Sun: Closed"}
+    ]
+    sidebar_hours = []
+    for item in sidebar_hours_raw:
+        sidebar_hours.append({
+            "icon": item["icon"],
+            "label": translation_service.translate_to_language(item["label"], lang)
+        })
+    operating_hours_title = translation_service.translate_to_language("Operating Hours", lang)
 
-    # Record user message in history
+    return render_template(
+        'index.html',
+        active_language=lang,
+        welcome_text=welcome_text,
+        welcome_chips=welcome_chips,
+        sidebar_hours=sidebar_hours,
+        operating_hours_title=operating_hours_title
+    )
+
+@app.route('/api/language', methods=['POST'])
+def set_language():
+    data = request.json or {}
+    lang = data.get('language', 'en')
+    session_manager.set_language(lang)
+    session_manager.clear_history()
+    session_manager.clear_collect_state()
+    return jsonify({'success': True, 'language': lang})
+
+def chat_internal(message_orig, message_trans, simulate_claude=False):
+    message = message_trans
+    
+    # Record user message in history (using English version for clean context)
     session_manager.add_message('user', message)
     
     cleaned_msg = message.lower().strip()
@@ -85,7 +119,7 @@ def chat():
 
     # 2. Check if collecting customer details for order lookup
     if flow == 'collecting_name':
-        user_name = message.strip()
+        user_name = message_orig.strip()
         session_manager.set_user_name(user_name)
         session_manager.set_flow('collecting_email')
         response_text = f"Thanks, **{user_name}**! Now, please enter your email address so we can associate it with this order."
@@ -99,7 +133,7 @@ def chat():
         })
 
     elif flow == 'collecting_email':
-        email = message.strip()
+        email = message_orig.strip()
         if '@' not in email or '.' not in email:
             response_text = "That doesn't look like a valid email address. Please enter a valid email (e.g. name@example.com):"
             chips = ["Cancel"]
@@ -688,6 +722,57 @@ def chat():
                 'response': response_text,
                 'chips': chips
             })
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    lang = session_manager.get_language()
+    
+    data = request.json or {}
+    message = data.get('message', '').strip()
+    simulate_claude = data.get('simulate_claude', False)
+    
+    if not message:
+        return jsonify({'error': 'Message is required'}), 400
+        
+    # Translate user input to English if not 'en'
+    translated_msg = message
+    if lang != 'en':
+        translated_msg = translation_service.translate_to_english(message)
+        
+    # Call internal chat logic
+    response_val = chat_internal(message, translated_msg, simulate_claude=simulate_claude)
+    
+    # Unpack Response or tuple
+    if isinstance(response_val, tuple):
+        res_obj, status_code = response_val
+    else:
+        res_obj = response_val
+        status_code = 200
+        
+    # Extract JSON data
+    if hasattr(res_obj, 'get_json'):
+        res_data = res_obj.get_json()
+    else:
+        res_data = res_obj
+        
+    # Translate response elements back to target language if not 'en'
+    if res_data and lang != 'en':
+        if 'response' in res_data and res_data['response']:
+            res_data['response'] = translation_service.translate_to_language(res_data['response'], lang)
+            
+        if 'chips' in res_data and res_data['chips']:
+            translated_chips = []
+            for chip in res_data['chips']:
+                if re.match(r'^ord-\d+$', chip.lower().strip()):
+                    translated_chips.append(chip)
+                else:
+                    translated_chips.append(translation_service.translate_to_language(chip, lang))
+            res_data['chips'] = translated_chips
+            
+        if 'order_card' in res_data and res_data['order_card'] and 'badge' in res_data['order_card']:
+            res_data['order_card']['badge'] = translation_service.translate_to_language(res_data['order_card']['badge'], lang)
+            
+    return jsonify(res_data), status_code
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

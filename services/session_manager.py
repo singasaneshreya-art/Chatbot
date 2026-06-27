@@ -61,3 +61,10 @@ def clear_collect_state():
         session['flow'] = None
     session.modified = True
 
+def set_language(lang):
+    session['language'] = lang
+    session.modified = True
+
+def get_language():
+    return session.get('language', 'en')
+

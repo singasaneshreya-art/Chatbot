@@ -244,7 +244,7 @@ function sendMessage(text) {
     });
 }
 
-// Language Selector Logic (frontend-only, cosmetic)
+// Language Selector Logic (Synchronized with Python Backend)
 function initLanguageSelector() {
   const selector = document.getElementById('language-selector');
   const btn = document.getElementById('language-btn');
@@ -253,9 +253,11 @@ function initLanguageSelector() {
 
   if (!selector || !btn || !dropdown || !label) return;
 
-  // Load saved language preference
-  const savedLang = localStorage.getItem('supportai-language') || 'en';
-  const savedOption = dropdown.querySelector(`[data-lang="${savedLang}"]`);
+  // Load language preference from global config set by backend
+  const activeLang = window.APP_CONFIG?.activeLanguage || 'en';
+  localStorage.setItem('supportai-language', activeLang);
+  
+  const savedOption = dropdown.querySelector(`[data-lang="${activeLang}"]`);
   if (savedOption) {
     label.textContent = savedOption.textContent;
     dropdown.querySelectorAll('.language-option').forEach(opt => opt.classList.remove('active'));
@@ -273,11 +275,26 @@ function initLanguageSelector() {
     option.addEventListener('click', (e) => {
       e.stopPropagation();
       const lang = option.getAttribute('data-lang');
-      label.textContent = option.textContent;
-      localStorage.setItem('supportai-language', lang);
-
-      dropdown.querySelectorAll('.language-option').forEach(opt => opt.classList.remove('active'));
-      option.classList.add('active');
+      
+      // Update language on Python backend
+      fetch('/api/language', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ language: lang })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          localStorage.setItem('supportai-language', lang);
+          // Reload the page to load translation assets/welcome messages
+          window.location.reload();
+        }
+      })
+      .catch(err => {
+        console.error("Error setting language on backend:", err);
+      });
 
       selector.classList.remove('open');
     });
@@ -332,8 +349,8 @@ window.addEventListener('DOMContentLoaded', () => {
       }).then(() => {
         document.getElementById('message-list').innerHTML = '';
         document.getElementById('chips-container').innerHTML = '';
-        const welcomeText = `👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?`;
-        const welcomeChips = ["Track my order", "I need a refund", "What are your hours?"];
+        const welcomeText = window.APP_CONFIG?.welcomeText || `👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?`;
+        const welcomeChips = window.APP_CONFIG?.welcomeChips || ["Track my order", "I need a refund", "What are your hours?"];
         addBotMessage(welcomeText, welcomeChips);
       });
     });
@@ -343,7 +360,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initLanguageSelector();
 
   // Show welcome message on startup
-  const welcomeText = `👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?`;
-  const welcomeChips = ["Track my order", "I need a refund", "What are your hours?"];
+  const welcomeText = window.APP_CONFIG?.welcomeText || `👋 Hi! I'm **Support AI** — your AI-powered customer service agent.\n\nI can help you track your **order**, process a **refund**, or check our **support hours**! What can I do for you today?`;
+  const welcomeChips = window.APP_CONFIG?.welcomeChips || ["Track my order", "I need a refund", "What are your hours?"];
   addBotMessage(welcomeText, welcomeChips);
 });
